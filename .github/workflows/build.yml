@@ -12,7 +12,7 @@ on:
 
 jobs:
   build:
-    name: ${{ matrix.version }} ${{ matrix.architecture.name }}
+    name: Build
     runs-on: ubuntu-latest
     container: alpine:edge
     strategy:
@@ -52,34 +52,26 @@ jobs:
                 qemu: x86_64
 
     steps:
-      - name: Clone Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
       - name: Install Dependencies
-        run: |
-          apk add --no-cache \
-            curl \
-            qemu-img \
-            "qemu-system-${{ matrix.architecture.qemu }}"
+        run: apk add --no-cache curl qemu-img "qemu-system-${{ matrix.architecture.qemu }}"
 
       - uses: hashicorp/setup-packer@main
         with:
-          version: "1.9.1"
+          version: "1.10.3"
 
-      # - name: Setup tmate session
-      #   uses: mxschmitt/action-tmate@v3
-      #   with:
-      #     limit-access-to-actor: true
+      # - uses: mxschmitt/action-tmate@v3
 
       - name: Build Image
         if: '!matrix.copy_from_previous_release'
-        env:
-          PACKER_LOG: 1
         run: |
-          ./build.sh '${{ matrix.version }}' '${{ matrix.architecture.name }}' \
-            -var 'headless=true'
+          CHECKPOINT_DISABLE=1 PACKER_LOG=1 ./build.sh \
+            '${{ matrix.version }}' \
+            '${{ matrix.architecture.name }}' \
+            -var headless=true
 
       - name: Copy from previous release
         if: matrix.copy_from_previous_release
