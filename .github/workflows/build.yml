@@ -10,6 +10,10 @@ on:
     branches:
       - master
 
+env:
+  PACKER_CACHE_DIR: /home/runner/.cache/packer
+  PACKER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 jobs:
   build:
     name: ${{ matrix.version }} ${{ matrix.architecture.name }}
@@ -18,7 +22,6 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - '12.2'
           - '13.0'
           - '13.1'
           - '13.2'
@@ -32,55 +35,69 @@ jobs:
 
         architecture:
           - name: x86-64
-            qemu: x86
+            packages: qemu-system-x86
             uname: amd64
 
           - name: arm64
-            qemu: aarch64
-
-        exclude:
-          - version: '12.2'
-            architecture:
-              name: arm64
-              qemu: aarch64
+            packages: qemu-system-arm
 
         include:
+          - version: '12.2'
+            copy_from_previous_release: true
+            architecture:
+              name: x86-64
+              uname: amd64
+
           - version: '12.4'
             copy_from_previous_release: true
             architecture:
               name: arm64
-              qemu: aarch64
 
           - version: '12.4'
+            copy_from_previous_release: true
             architecture:
               name: x86-64
-              qemu: x86
               uname: amd64
 
     steps:
-      - name: Clone Repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        if: ${{ !matrix.copy_from_previous_release }}
         with:
           persist-credentials: false
 
-      - name: Install Dependencies
+      - name: Install packages
+        if: ${{ !matrix.copy_from_previous_release }}
         run: |
-          sudo apt update && \
-          sudo apt install -y \
-          fdisk \
-          dosfstools \
-          rsync \
-          curl \
-          python3 \
-          qemu-system-${{ matrix.architecture.qemu }}
+          sudo apt-get update
+          sudo apt-get install \
+            curl \
+            dosfstools \
+            fdisk \
+            python3 \
+            qemu-utils \
+            rsync \
+            ${{ matrix.architecture.packages }}
 
           if [ -f /usr/share/qemu-efi-aarch64/QEMU_EFI.fd ]; then
             sudo ln -s /usr/share/qemu-efi-aarch64/QEMU_EFI.fd /usr/share/qemu/edk2-aarch64-code.fd
           fi
 
+      - name: Enable KVM group perms
+        if: ${{ !matrix.copy_from_previous_release && matrix.architecture.name == 'x86-64' }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - uses: hashicorp/setup-packer@main
+        if: ${{ !matrix.copy_from_previous_release }}
+
+      - uses: actions/cache@v4
+        if: ${{ !matrix.copy_from_previous_release }}
         with:
-          version: "1.9.1"
+          path: ${{ env.PACKER_CACHE_DIR }}
+          key: packer-cache-${{ matrix.version }}-${{ matrix.architecture.name }}-${{ github.sha }}
+          restore-keys: packer-cache-${{ matrix.version }}-${{ matrix.architecture.name }}
 
       # - name: Setup tmate session
       #   uses: mxschmitt/action-tmate@v3
@@ -88,8 +105,9 @@ jobs:
       #     limit-access-to-actor: true
 
       - name: Build Image
-        if: '!matrix.copy_from_previous_release'
+        if: ${{ !matrix.copy_from_previous_release }}
         env:
+          CHECKPOINT_DISABLE: 1
           PACKER_LOG: 1
         run: |
           ./build.sh '${{ matrix.version }}' '${{ matrix.architecture.name }}' \

@@ -27,7 +27,7 @@ variable "pkg_site_architecture" {
 }
 
 variable "machine_type" {
-  default = "pc"
+  default = "q35"
   type = string
   description = "The type of machine to use when building"
 }
@@ -95,12 +95,6 @@ variable "display" {
   description = "What QEMU -display option to use"
 }
 
-variable "accelerator" {
-  default = "tcg"
-  type = string
-  description = "The accelerator type to use when running the VM"
-}
-
 variable "firmware" {
   type = string
   description = "The firmware file to be used by QEMU"
@@ -108,7 +102,16 @@ variable "firmware" {
 
 locals {
   vm_name = "freebsd-${var.os_version}-${var.architecture}.qcow2"
-  iso_path = "ISO-IMAGES/${var.os_version}/FreeBSD-${var.os_version}-RELEASE-${var.image_architecture}-dvd1.iso"
+  iso_path = "ISO-IMAGES/${var.os_version}/FreeBSD-${var.os_version}-RELEASE-${var.image_architecture}-disc1.iso.xz"
+}
+
+packer {
+  required_plugins {
+    qemu = {
+      version = ">= 1.1.1"
+      source  = "github.com/hashicorp/qemu"
+    }
+  }
 }
 
 source "qemu" "qemu" {
@@ -125,7 +128,6 @@ source "qemu" "qemu" {
   headless = var.headless
   use_default_display = var.use_default_display
   display = var.display
-  accelerator = "none" // we manually specify multiple accelerators below
   qemu_binary = "qemu-system-${var.qemu_architecture}"
   firmware = var.firmware
 
@@ -148,10 +150,7 @@ source "qemu" "qemu" {
   qemuargs = [
     ["-cpu", var.cpu_type],
     ["-boot", "strict=off"],
-    ["-monitor", "none"],
-    ["-accel", "hvf"],
-    ["-accel", "kvm"],
-    ["-accel", "tcg"]
+    ["-monitor", "none"]
   ]
 
   iso_checksum = var.checksum
